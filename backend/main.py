@@ -143,6 +143,6 @@ async def predict_ecg_endpoint(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    # Use PORT from environment variable or default to 8000
-    port = int(os.environ.get("PORT", 8000))
+    # Use PORT from environment variable or default to 7860 (HF Spaces default)
+    port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)

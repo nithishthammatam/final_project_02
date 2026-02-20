@@ -50,9 +50,9 @@ def get_model():
         
         model.to(device)
         
-        # Register hooks (Modified for quantized model if needed, but standard hooks might fail on quantized layers)
-        # For safety on low-RAM env, we might skip heatmap if it crashes, but let's try keeping it.
-        # Note: Quantized models might change layer structure.
+        # Register GradCAM hooks on layer4 (Conv2d is NOT affected by dynamic quantization)
+        model.layer4[1].conv2.register_forward_hook(forward_hook)
+        model.layer4[1].conv2.register_full_backward_hook(backward_hook)
         
         print("✓ X-Ray model loaded & quantized!")
     return model
@@ -222,6 +222,8 @@ def predict_image(image_path, symptoms=None):
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
+    
+    input_tensor = transform(image).unsqueeze(0).to(device)
     
     # Load model
     model_instance = get_model()

@@ -6,6 +6,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, on
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { Activity } from 'lucide-react';
 import React, { useEffect } from 'react';
+import { getApiUrl } from '@/lib/config';
 
 function LoginForm() {
     const searchParams = useSearchParams();
@@ -115,7 +116,7 @@ function LoginForm() {
                         try {
                             const formData = new FormData();
                             formData.append("file", profilePhoto);
-                            const res = await fetch("http://127.0.0.1:8000/upload", {
+                            const res = await fetch(getApiUrl("/upload"), {
                                 method: "POST",
                                 body: formData
                             });

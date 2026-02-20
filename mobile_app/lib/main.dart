@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'dart:io';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -12,6 +13,11 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
+  
+  if (Platform.isAndroid) {
+    await AndroidInAppWebViewController.setWebContentsDebuggingEnabled(true);
+  }
+
   runApp(const MediXpertApp());
 }
 
@@ -174,68 +180,25 @@ class WebAppScreen extends StatefulWidget {
 }
 
 class _WebAppScreenState extends State<WebAppScreen> {
-  late final WebViewController _controller;
-  bool _isLoading = true;
+  InAppWebViewController? _webViewController;
   double _loadingProgress = 0;
+  bool _isLoading = true;
   bool _hasError = false;
 
   // ⚠️ IMPORTANT: Change this to your deployed website URL
   // For emulator use: http://10.0.2.2:3000
   // For physical device: use your computer's local IP (e.g. http://192.168.1.5:3000)
   // For production: https://your-app.vercel.app
-  static const String _websiteUrl = 'http://10.54.153.111:3000';
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (int progress) {
-            if (mounted) {
-              setState(() {
-                _loadingProgress = progress / 100;
-              });
-            }
-          },
-          onPageStarted: (String url) {
-            if (mounted) {
-              setState(() {
-                _isLoading = true;
-                _hasError = false;
-              });
-            }
-          },
-          onPageFinished: (String url) {
-            if (mounted) {
-              setState(() {
-                _isLoading = false;
-              });
-            }
-          },
-          onWebResourceError: (WebResourceError error) {
-            if (mounted) {
-              setState(() {
-                _hasError = true;
-                _isLoading = false;
-              });
-            }
-          },
-        ),
-      )
-      ..setUserAgent('MediXpertMobileApp/1.0')
-      ..loadRequest(Uri.parse(_websiteUrl));
-  }
+  static const String _websiteUrl = 'https://final-project-02.vercel.app';
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
-        if (!didPop) {
-          if (await _controller.canGoBack()) {
-            _controller.goBack();
+        if (!didPop && _webViewController != null) {
+          if (await _webViewController!.canGoBack()) {
+            _webViewController!.goBack();
           }
         }
       },
@@ -245,7 +208,56 @@ class _WebAppScreenState extends State<WebAppScreen> {
           child: Stack(
             children: [
               if (!_hasError)
-                WebViewWidget(controller: _controller),
+                InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri(_websiteUrl)),
+                  initialSettings: InAppWebViewSettings(
+                    isInspectable: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                    allowsInlineMediaPlayback: true,
+                    iframeAllow: "camera; microphone",
+                    iframeAllowFullscreen: true,
+                    useHybridComposition: true, // Crucial for Android file uploads sometimes
+                    allowFileAccessFromFileURLs: true,
+                    allowUniversalAccessFromFileURLs: true,
+                  ),
+                  onWebViewCreated: (controller) {
+                    _webViewController = controller;
+                  },
+                  onLoadStart: (controller, url) {
+                    setState(() {
+                      _isLoading = true;
+                      _hasError = false;
+                    });
+                  },
+                  onLoadStop: (controller, url) async {
+                    setState(() {
+                      _isLoading = false;
+                    });
+                  },
+                  onReceivedError: (controller, request, error) {
+                     // Ignore cancelled errors often thrown on redirects
+                     if (error.type != WebResourceErrorType.CANCELLED) {
+                        setState(() {
+                          _hasError = true;
+                          _isLoading = false;
+                        });
+                     }
+                  },
+                  onProgressChanged: (controller, progress) {
+                    setState(() {
+                      _loadingProgress = progress / 100;
+                    });
+                  },
+                  onPermissionRequest: (controller, request) async {
+                    return PermissionResponse(
+                      resources: request.resources,
+                      action: PermissionResponseAction.GRANT,
+                    );
+                  },
+                  shouldOverrideUrlLoading: (controller, navigationAction) async {
+                    return NavigationActionPolicy.ALLOW;
+                  },
+                ),
               if (_hasError)
                 _buildErrorScreen(),
               if (_isLoading && !_hasError)
@@ -353,11 +365,13 @@ class _WebAppScreenState extends State<WebAppScreen> {
               const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: () {
-                  setState(() {
-                    _hasError = false;
-                    _isLoading = true;
-                  });
-                  _controller.loadRequest(Uri.parse(_websiteUrl));
+                  if (_webViewController != null) {
+                    _webViewController!.reload();
+                    setState(() {
+                       _hasError = false;
+                       _isLoading = true;
+                    });
+                  }
                 },
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Retry'),
