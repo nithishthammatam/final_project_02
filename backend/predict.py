@@ -10,6 +10,7 @@ from PIL import Image, ImageStat
 import numpy as np
 import cv2
 import os
+import gc
 
 # ============================================================
 # LOAD RESNET18 MODEL (LAZY LOADING)
@@ -21,6 +22,9 @@ model = None
 def get_model():
     global model
     if model is None:
+        # Force garbage collection before loading
+        gc.collect()
+        
         print("Loading X-Ray ResNet18 model...")
         # Load pre-trained ResNet18 and modify for our task
         model = models.resnet18(pretrained=False)

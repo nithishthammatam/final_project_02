@@ -10,6 +10,7 @@ from PIL import Image, ImageStat
 import numpy as np
 import cv2
 import os
+import gc
 
 # ============================================================
 # CONFIGURATION
@@ -26,6 +27,7 @@ model = None
 def get_ecg_model():
     global model
     if model is None:
+        gc.collect()
         print("Loading ECG ResNet18 model...")
         model = models.resnet18(pretrained=False)
         num_features = model.fc.in_features

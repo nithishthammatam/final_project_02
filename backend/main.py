@@ -37,6 +37,8 @@ def home():
     return {"message": "Integrated Healthcare System AI Backend Running"}
 
 # ---- X-RAY PREDICTION ENDPOINT ----
+import gc
+
 @app.post("/predict")
 async def predict_xray_endpoint(file: UploadFile = File(...), symptoms: str = Form(None)):
     try:
@@ -55,12 +57,10 @@ async def predict_xray_endpoint(file: UploadFile = File(...), symptoms: str = Fo
         
         if not xray_upload.get("success"):
             print(f"Cloudinary upload failed: {xray_upload.get('error')}")
-            # Continue with local URL in worst case (though frontend expects Cloudinary)
         else:
             result["file_url"] = xray_upload["url"]
             result["cloudinary_public_id"] = xray_upload["public_id"]
         
-        # Upload heatmap to Cloudinary if it exists
         if result.get("heatmap_path"):
             heatmap_local_path = result["heatmap_path"]
             if os.path.exists(heatmap_local_path):
@@ -69,12 +69,23 @@ async def predict_xray_endpoint(file: UploadFile = File(...), symptoms: str = Fo
                 if heatmap_upload.get("success"):
                     result["heatmap_url"] = heatmap_upload["url"]
         
+        # Cleanup local files aggressively after upload or fail
+        try:
+           if os.path.exists(file_path):
+               os.remove(file_path)
+           if result.get("heatmap_path") and os.path.exists(result["heatmap_path"]):
+               os.remove(result["heatmap_path"])
+        except:
+           pass
+           
         return result
         
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        gc.collect() # Force cleanup RAM
 
 # ---- ECG PREDICTION ENDPOINT (VISION BASED) ----
 @app.post("/predict_ecg")
@@ -90,8 +101,6 @@ async def predict_ecg_endpoint(file: UploadFile = File(...)):
         result = predict_ecg(file_path)
         
         if "error" in result:
-             # If model not ready, proceed with upload but return error in result or mock?
-             # For now, let's allow it to return so we can see the UI at least
              pass
 
         # Upload ECG image to Cloudinary
@@ -106,7 +115,6 @@ async def predict_ecg_endpoint(file: UploadFile = File(...)):
         else:
             response_data["file_url"] = f"http://localhost:8000/uploaded_images/{file.filename}"
             
-        # Upload heatmap if available
         if result.get("heatmap_path"):
             heatmap_local_path = result["heatmap_path"]
             if os.path.exists(heatmap_local_path):
@@ -115,10 +123,14 @@ async def predict_ecg_endpoint(file: UploadFile = File(...)):
                 if heatmap_upload.get("success"):
                     response_data["heatmap_url"] = heatmap_upload["url"]
         
-        # Structure match frontend expectations
-        # Frontend expects: ecgPrediction.ECG_Prediction_Label, confidence, etc.
-        # But we can also update frontend to match our new cleaner structure.
-        # For now, let's return our comprehensive structure.
+        # Cleanup local files aggressively
+        try:
+           if os.path.exists(file_path):
+               os.remove(file_path)
+           if result.get("heatmap_path") and os.path.exists(result["heatmap_path"]):
+               os.remove(result["heatmap_path"])
+        except:
+           pass
         
         return response_data
 
@@ -126,6 +138,8 @@ async def predict_ecg_endpoint(file: UploadFile = File(...)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        gc.collect() # Force cleanup RAM
 
 if __name__ == "__main__":
     import uvicorn
