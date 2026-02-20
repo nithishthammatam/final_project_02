@@ -498,7 +498,7 @@ export default function DoctorDashboard() {
                     <p className="text-red-400 text-xs mt-2">{searchError}</p>
                   )}
                   {searchDocId && !searchError && (
-                    <p className="text-gray-400 text-xs mt-2">Click "Load" to view the image and record details</p>
+                    <p className="text-gray-400 text-xs mt-2">Click &quot;Load&quot; to view the image and record details</p>
                   )}
                 </div>
 
