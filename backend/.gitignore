@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+
+# Firebase Security - CRITICAL: Never commit service account keys
+serviceAccountKey*.json
+*.json.json
+
+# Uploaded images (keep folder but ignore contents)
+uploaded_images/*
+!uploaded_images/.gitkeep
