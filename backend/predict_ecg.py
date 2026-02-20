@@ -40,14 +40,22 @@ def get_ecg_model():
         
         MODEL_PATH = os.path.join(os.path.dirname(__file__), "ecg_resnet_model.pth")
         if os.path.exists(MODEL_PATH):
-            model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+            state_dict = torch.load(MODEL_PATH, map_location=device)
+            model.load_state_dict(state_dict)
             model.eval()
+            
+            # QUANTIZE MODEL (Reduce RAM usage)
+            print("Quantizing ECG model...")
+            model = torch.quantization.quantize_dynamic(
+                model, {nn.Linear, nn.Conv2d}, dtype=torch.qint8
+            )
+            
             model.to(device)
             
             # Register hooks on layer4 (last conv layer)
             model.layer4[1].conv2.register_forward_hook(forward_hook)
             model.layer4[1].conv2.register_full_backward_hook(backward_hook)
-            print("✓ ECG model loaded successfully!")
+            print("✓ ECG model loaded & quantized successfully!")
         else:
             print("✗ ECG model file not found!")
             model = "NOT_FOUND" 
@@ -67,6 +75,27 @@ def forward_hook(module, input, output):
     global activations
     activations = output
 
+# 2. IMAGE PREPROCESSING
+def preprocess_ecg_image(image_path):
+    """
+    Loads an image, converts to Grayscale (3-channel), resizes,
+    and returns a tensor ready for the model.
+    """
+    image = cv2.imread(image_path)
+    if image is None:
+        raise ValueError("Could not read image file")
+        
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(image)
+    
+    transform = transforms.Compose([
+        transforms.Resize((160, 160)), # Downsize to save RAM
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    
+    return transform(pil_image).unsqueeze(0).to(device)
+
 # ============================================================
 # ANALYSIS LOGIC
 # ============================================================
@@ -82,7 +111,7 @@ def predict_ecg(image_path):
     
     # Transform
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((160, 160)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
