@@ -19,28 +19,37 @@ NUM_CLASSES = 5
 device = torch.device("cpu")
 
 # ============================================================
-# LOAD MODEL
+# LOAD MODEL (LAZY LOADING)
 # ============================================================
-model = models.resnet18(pretrained=False)
-num_features = model.fc.in_features
-model.fc = nn.Sequential(
-    nn.Dropout(0.5),
-    nn.Linear(num_features, 128),
-    nn.ReLU(),
-    nn.Linear(128, NUM_CLASSES)
-)
+model = None
 
-MODEL_PATH = "ecg_resnet_model.pth"
-
-def load_model():
-    if os.path.exists(MODEL_PATH):
-        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-        model.eval()
-        model.to(device)
-        return True
-    return False
-
-model_loaded = load_model()
+def get_ecg_model():
+    global model
+    if model is None:
+        print("Loading ECG ResNet18 model...")
+        model = models.resnet18(pretrained=False)
+        num_features = model.fc.in_features
+        model.fc = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(num_features, 128),
+            nn.ReLU(),
+            nn.Linear(128, NUM_CLASSES)
+        )
+        
+        MODEL_PATH = os.path.join(os.path.dirname(__file__), "ecg_resnet_model.pth")
+        if os.path.exists(MODEL_PATH):
+            model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+            model.eval()
+            model.to(device)
+            
+            # Register hooks on layer4 (last conv layer)
+            model.layer4[1].conv2.register_forward_hook(forward_hook)
+            model.layer4[1].conv2.register_full_backward_hook(backward_hook)
+            print("✓ ECG model loaded successfully!")
+        else:
+            print("✗ ECG model file not found!")
+            model = "NOT_FOUND" 
+    return model
 
 # ============================================================
 # GRADCAM HOOKS
@@ -56,18 +65,15 @@ def forward_hook(module, input, output):
     global activations
     activations = output
 
-# Register hooks on layer4 (last conv layer)
-model.layer4[1].conv2.register_forward_hook(forward_hook)
-model.layer4[1].conv2.register_full_backward_hook(backward_hook)
-
 # ============================================================
 # ANALYSIS LOGIC
 # ============================================================
 
 def predict_ecg(image_path):
-    if not model_loaded:
-        if not load_model():
-            return {"error": "ECG Model not trained yet"}
+    # Load model
+    model_instance = get_ecg_model()
+    if model_instance == "NOT_FOUND":
+        return {"error": "ECG Model not trained yet"}
 
     # Load Image
     image = Image.open(image_path).convert("RGB")
@@ -82,7 +88,7 @@ def predict_ecg(image_path):
     input_tensor = transform(image).unsqueeze(0).to(device)
     
     # Prediction
-    output = model(input_tensor)
+    output = model_instance(input_tensor)
     probs = torch.softmax(output, dim=1)[0]
     
     pred_idx = torch.argmax(probs).item()
@@ -90,7 +96,7 @@ def predict_ecg(image_path):
     label = CLASS_NAMES[pred_idx]
     
     # GradCAM
-    model.zero_grad()
+    model_instance.zero_grad()
     output[0][pred_idx].backward()
     
     cam = np.zeros((224, 224), dtype=np.float32)

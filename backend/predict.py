@@ -12,28 +12,38 @@ import cv2
 import os
 
 # ============================================================
-# LOAD RESNET18 MODEL
+# LOAD RESNET18 MODEL (LAZY LOADING)
 # ============================================================
 
 device = torch.device("cpu")
+model = None
 
-# Load pre-trained ResNet18 and modify for our task
-model = models.resnet18(pretrained=False)
-num_features = model.fc.in_features
-model.fc = nn.Sequential(
-    nn.Dropout(0.5),
-    nn.Linear(num_features, 256),
-    nn.ReLU(),
-    nn.Dropout(0.3),
-    nn.Linear(256, 2)
-)
+def get_model():
+    global model
+    if model is None:
+        print("Loading X-Ray ResNet18 model...")
+        # Load pre-trained ResNet18 and modify for our task
+        model = models.resnet18(pretrained=False)
+        num_features = model.fc.in_features
+        model.fc = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(num_features, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 2)
+        )
 
-# Load trained weights
-model.load_state_dict(torch.load("xray_pneumonia_model.pth", map_location=device))
-model.eval()
-model.to(device)
-
-print("✓ ResNet18 model loaded successfully!")
+        # Load trained weights
+        model.load_state_dict(torch.load(os.path.join(os.path.dirname(__file__), "xray_pneumonia_model.pth"), map_location=device))
+        model.eval()
+        model.to(device)
+        
+        # Register hooks on layer4 (last conv layer in ResNet)
+        model.layer4[1].conv2.register_forward_hook(forward_hook)
+        model.layer4[1].conv2.register_full_backward_hook(backward_hook)
+        
+        print("✓ X-Ray model loaded successfully!")
+    return model
 
 # ============================================================
 # GRADCAM FOR VISUALIZATION
@@ -49,10 +59,6 @@ def backward_hook(module, grad_in, grad_out):
 def forward_hook(module, input, output):
     global activations
     activations = output
-
-# Register hooks on layer4 (last conv layer in ResNet)
-model.layer4[1].conv2.register_forward_hook(forward_hook)
-model.layer4[1].conv2.register_full_backward_hook(backward_hook)
 
 # ============================================================
 # MEDICAL KNOWLEDGE BASE
@@ -205,13 +211,11 @@ def predict_image(image_path, symptoms=None):
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     
-    input_tensor = transform(image).unsqueeze(0).to(device)
-    
-    # IMPORTANT: We need gradients for GradCAM even in validation mode
-    # Remove torch.no_grad() but keep model in eval mode
+    # Load model
+    model_instance = get_model()
     
     # Forward pass
-    output = model(input_tensor)
+    output = model_instance(input_tensor)
     probabilities = torch.softmax(output, dim=1)[0]
     
     # Get predictions (detach to get simple float values)
@@ -228,7 +232,7 @@ def predict_image(image_path, symptoms=None):
     uncertainty = 1.0 - abs(normal_confidence - pneumonia_confidence)
     
     # Generate GradCAM heatmap
-    model.zero_grad()
+    model_instance.zero_grad()
     output[0][prediction_idx].backward()
     
     # Check if gradients were captured
