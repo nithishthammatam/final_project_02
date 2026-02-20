@@ -51,7 +51,6 @@ export default function Navbar() {
 
     const navLinks = [
         { name: 'Home', href: homeLink }, // Use dynamic link
-        { name: 'About', href: '/about' },
     ];
 
     return (
